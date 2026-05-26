@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEB — Admin Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.3.2/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070c10;
+    --surface: #0d1520;
+    --surface2: #111e2c;
+    --border: #1a2d3f;
+    --accent: #00d4aa;
+    --accent2: #ff6b35;
+    --warn: #ffb347;
+    --danger: #ff4757;
+    --success: #2ed573;
+    --text: #d8e8f4;
+    --muted: #4a6a82;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 240px 1fr;
+    grid-template-areas: "topbar topbar" "sidebar main";
+  }
+
+  /* ── Scanline overlay ── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  /* ─── TOPBAR ─── */
+  .topbar {
+    grid-area: topbar;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: relative;
+    z-index: 10;
+  }
+
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-icon {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    color: var(--bg);
+    font-family: var(--mono);
+    font-weight: 600;
+  }
+
+  .brand-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+
+  .topbar-meta {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .status-dot.active { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .status-dot.running { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: blink 1.5s ease infinite; }
+
+  @keyframes blink {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .topbar-time {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ─── SIDEBAR ─── */
+  .sidebar {
+    grid-area: sidebar;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+  }
+
+  .sidebar-section {
+    padding: 4px 16px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 13px;
+    transition: all 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-btn.active { color: var(--accent); border-left-color: var(--accent); background: rgba(0,212,170,0.05); }
+
+  .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+
+  /* ─── MAIN AREA ─── */
+  .main {
+    grid-area: main;
+    overflow-y: auto;
+    padding: 28px;
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .page-sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+
+  /* ─── STAT CARDS ─── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.green::before { background: var(--accent); }
+  .stat-card.orange::before { background: var(--accent2); }
+  .stat-card.warn::before { background: var(--warn); }
+  .stat-card.danger::before { background: var(--danger); }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .stat-card.green .stat-value { color: var(--accent); }
+  .stat-card.orange .stat-value { color: var(--accent2); }
+  .stat-card.warn .stat-value { color: var(--warn); }
+  .stat-card.danger .stat-value { color: var(--danger); }
+
+  /* ─── EXAM CONTROLS ─── */
+  .controls-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+
+  .ctrl-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .ctrl-btn:hover { background: rgba(255,255,255,0.04); border-color: var(--text); }
+
+  .ctrl-btn.start { border-color: var(--accent); color: var(--accent); }
+  .ctrl-btn.start:hover { background: rgba(0,212,170,0.08); }
+
+  .ctrl-btn.stop { border-color: var(--danger); color: var(--danger); }
+  .ctrl-btn.stop:hover { background: rgba(255,71,87,0.08); }
+
+  .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ─── TABLE ─── */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .table-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .table-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.2);
+  }
+
+  td {
+    padding: 14px 20px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(26,45,63,0.5);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-radius: 2px;
+  }
+
+  .badge-active   { background: rgba(0,212,170,0.1); color: var(--accent); border: 1px solid rgba(0,212,170,0.2); }
+  .badge-kicked   { background: rgba(255,71,87,0.1);  color: var(--danger); border: 1px solid rgba(255,71,87,0.2); }
+  .badge-submitted{ background: rgba(46,213,115,0.1); color: var(--success); border: 1px solid rgba(46,213,115,0.2); }
+  .badge-offline  { background: rgba(90,120,148,0.1); color: var(--muted); border: 1px solid rgba(90,120,148,0.2); }
+
+  .viol-count { font-family: var(--mono); font-weight: 600; }
+  .viol-count.red { color: var(--danger); }
+  .viol-count.warn { color: var(--warn); }
+
+  .kick-btn {
+    background: none;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 5px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .kick-btn:hover { background: rgba(255,71,87,0.1); }
+
+  /* ─── VIOLATIONS FEED ─── */
+  #violations-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .viol-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(255,71,87,0.06);
+    border: 1px solid rgba(255,71,87,0.15);
+    border-left: 3px solid var(--danger);
+    animation: fadeSlide 0.3s ease;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .viol-time { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .viol-user { font-weight: 600; font-size: 13px; }
+  .viol-type { font-family: var(--mono); font-size: 11px; color: var(--warn); }
+  .viol-num  { font-family: var(--mono); font-size: 11px; color: var(--danger); margin-left: auto; }
+
+  /* ─── UPLOAD SECTION ─── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    background: var(--surface);
+    margin-bottom: 20px;
+  }
+
+  .upload-zone:hover { border-color: var(--accent); }
+  .upload-zone.dragover { border-color: var(--accent); background: rgba(0,212,170,0.04); }
+
+  .upload-icon { font-size: 36px; margin-bottom: 12px; }
+
+  .upload-text { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+  .upload-text strong { color: var(--text); }
+
+  #file-input { display: none; }
+
+  /* ─── FORM ELEMENTS ─── */
+  .form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .form-field {
+    flex: 1;
+  }
+
+  .form-field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .form-field input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .form-field input:focus { border-color: var(--accent); }
+
+  .btn-action {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 10px 24px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    align-self: flex-end;
+    height: 40px;
+  }
+
+  .btn-action:hover { opacity: 0.85; }
+
+  /* ─── TOAST ─── */
+  #toast {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 14px 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    z-index: 1000;
+    transform: translateX(120%);
+    transition: transform 0.3s ease;
+    max-width: 360px;
+  }
+
+  #toast.show { transform: translateX(0); }
+  #toast.danger { border-left-color: var(--danger); color: var(--danger); }
+
+  /* ─── EMPTY STATE ─── */
+  .empty-state {
+    text-align: center;
+    padding: 48px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .empty-state .empty-icon { font-size: 32px; margin-bottom: 12px; }
+
+  /* ─── CSV TEMPLATE ─── */
+  .code-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    white-space: pre;
+    overflow-x: auto;
+    margin-bottom: 16px;
+  }
+
+  .scrollbar::-webkit-scrollbar { width: 4px; }
+  .scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar::-webkit-scrollbar-thumb { background: var(--border); }
+</style>
+</head>
+<body>
+
+<!-- ══════════ TOPBAR ══════════ -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <div class="brand-icon">SEB</div>
+    <div class="brand-text">Admin Panel</div>
+  </div>
+  <div class="topbar-meta">
+    <div class="status-pill">
+      <div class="status-dot" id="server-dot"></div>
+      <span id="server-status">Connecting...</span>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot" id="exam-dot"></div>
+      <span id="exam-status">Exam Idle</span>
+    </div>
+    <div class="topbar-time" id="clock">--:--:--</div>
+  </div>
+</header>
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar">
+  <div class="sidebar-section">Control</div>
+  <button class="nav-btn active" onclick="showPage('dashboard')">
+    <span class="nav-icon">⬡</span> Dashboard
+  </button>
+  <button class="nav-btn" onclick="showPage('students')">
+    <span class="nav-icon">◈</span> Students
+  </button>
+  <button class="nav-btn" onclick="showPage('violations')">
+    <span class="nav-icon">⚠</span> Violations
+  </button>
+  <button class="nav-btn" onclick="showPage('results')">
+    <span class="nav-icon">◎</span> Results
+  </button>
+
+  <div class="sidebar-section">Setup</div>
+  <button class="nav-btn" onclick="showPage('questions')">
+    <span class="nav-icon">≡</span> Questions
+  </button>
+  <button class="nav-btn" onclick="showPage('users')">
+    <span class="nav-icon">◻</span> Manage Users
+  </button>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+
+  <!-- ── DASHBOARD ── -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-title">Dashboard</div>
+    <div class="page-sub">Real-time exam overview and controls.</div>
+
+    <div class="stats-grid">
+      <div class="stat-card green">
+        <div class="stat-label">Students Online</div>
+        <div class="stat-value" id="stat-online">0</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-label">Submitted</div>
+        <div class="stat-value" id="stat-submitted">0</div>
+      </div>
+      <div class="stat-card warn">
+        <div class="stat-label">Violations</div>
+        <div class="stat-value" id="stat-violations">0</div>
+      </div>
+      <div class="stat-card danger">
+        <div class="stat-label">Kicked</div>
+        <div class="stat-value" id="stat-kicked">0</div>
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);padding:8px 16px;">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:1px">DURATION</span>
+          <input type="number" id="duration-input" value="30" min="1" max="300"
+            style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;font-family:var(--mono);font-size:14px;width:70px;outline:none">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">MIN</span>
+        </div>
+        <button class="ctrl-btn start" id="btn-start" onclick="startExam()">▶ Start Exam</button>
+        <button class="ctrl-btn stop"  id="btn-stop"  onclick="stopExam()" disabled>■ Stop Exam</button>
+        <div id="timer-display" style="display:none;font-family:var(--mono);font-size:28px;font-weight:700;color:var(--accent);letter-spacing:4px;padding:4px 16px;border:1px solid rgba(0,212,170,0.3);background:rgba(0,212,170,0.05)">00:00:00</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Recent Activity</div>
+      </div>
+      <div id="activity-feed" style="padding:0; max-height:280px; overflow-y:auto;">
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          Waiting for activity...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── STUDENTS ── -->
+  <div class="page" id="page-students">
+    <div class="page-title">Students</div>
+    <div class="page-sub">All connected students and their exam status.</div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Live Student List</div>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="student-count">0 students</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Status</th>
+            <th>Violations</th>
+            <th>Answered</th>
+            <th>Login Time</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="students-table-body">
+          <tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div>No students connected yet.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── VIOLATIONS ── -->
+  <div class="page" id="page-violations">
+    <div class="page-title">Violations</div>
+    <div class="page-sub">Live feed of detected cheating attempts.</div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Violation Log</div>
+        <button onclick="clearViolations()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:11px;">Clear</button>
+      </div>
+      <div id="violations-feed" style="padding:16px;">
+        <div class="empty-state"><div class="empty-icon">✅</div>No violations yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RESULTS ── -->
+  <div class="page" id="page-results">
+    <div class="page-title">Results</div>
+    <div class="page-sub">Final scores and answer summary.</div>
+
+    <div class="controls-row">
+      <button class="ctrl-btn" onclick="loadResults()">↻ Refresh Results</button>
+      <button class="ctrl-btn" onclick="exportResults()">↓ Export CSV</button>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Score Board</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Score</th>
+            <th>Answered</th>
+            <th>Violations</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="results-table-body">
+          <tr><td colspan="5"><div class="empty-state"><div class="empty-icon">📊</div>Results will appear after exam ends.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── QUESTIONS ── -->
+  <div class="page" id="page-questions">
+    <div class="page-title">Question Upload</div>
+    <div class="page-sub">Upload your exam questions in CSV format.</div>
+
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+      <input type="file" id="file-input" accept=".csv" onchange="handleFileSelect(this)">
+      <div class="upload-icon">📄</div>
+      <div class="upload-text">
+        <strong>Click to upload CSV</strong> or drag and drop<br>
+        Questions will be loaded immediately
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">CSV Format (required columns)</div>
+      <div class="code-block">id,question,option_a,option_b,option_c,option_d,answer
+1,What is 2+2?,1,2,4,8,C
+2,Capital of France?,Berlin,Madrid,Paris,Rome,C</div>
+    </div>
+
+    <div id="questions-preview" class="table-wrap" style="display:none">
+      <div class="table-header">
+        <div class="table-title">Questions Preview</div>
+        <span id="q-count-label" style="font-family:var(--mono);font-size:11px;color:var(--muted)"></span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Question</th><th>Options</th><th>Answer</th></tr>
+        </thead>
+        <tbody id="questions-preview-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── USERS ── -->
+  <div class="page" id="page-users">
+    <div class="page-title">Manage Users</div>
+    <div class="page-sub">Add or view student accounts.</div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);padding:24px;margin-bottom:24px;">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;">Add New Student</div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>Username</label>
+          <input type="text" id="new-username" placeholder="student_name">
+        </div>
+        <div class="form-field">
+          <label>Password</label>
+          <input type="password" id="new-password" placeholder="password">
+        </div>
+        <button class="btn-action" onclick="addUser()">+ Add</button>
+      </div>
+      <div id="user-msg" style="font-family:var(--mono);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Registered Students</div>
+        <button onclick="loadUsers()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:11px;">Refresh</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Username</th><th>Role</th></tr>
+        </thead>
+        <tbody id="users-table-body">
+          <tr><td colspan="2"><div class="empty-state">Loading...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════
+//  SOCKET & STATE
+// ════════════════════════════════════════════
+const socket = io(window.location.origin, {
+  transports: ["websocket", "polling"],
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000
+});
+let examRunning = false;
+let studentData = [];
+let violationLog = [];
+let resultData = [];
+
+// ── Clock ──
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}, 1000);
+
+// ════════════════════════════════════════════
+//  SOCKET EVENTS
+// ════════════════════════════════════════════
+socket.on('connect', () => {
+  setServerStatus(true);
+  addActivity('🔌 Admin connected to server');
+});
+
+socket.on('disconnect', () => {
+  setServerStatus(false);
+});
+
+socket.on('update_student_list', (data) => {
+  studentData = data;
+  renderStudentsTable(data);
+  updateStats();
+});
+
+socket.on('student_joined', (data) => {
+  addActivity(`✅ ${data.username} joined at ${data.login_time}`);
+  toast(`${data.username} joined the exam`);
+});
+
+socket.on('student_disconnected', (data) => {
+  addActivity(`🔌 ${data.username} disconnected`);
+});
+
+socket.on('student_kicked', (data) => {
+  addActivity(`🚫 ${data.username} was kicked`);
+});
+
+socket.on('student_submitted', (data) => {
+  addActivity(`📋 ${data.username} submitted (score: ${data.score})`);
+  toast(`${data.username} submitted!`, 'success');
+});
+
+socket.on('violation_alert', (data) => {
+  violationLog.unshift({
+    time: new Date().toLocaleTimeString(),
+    username: data.username,
+    type: data.type,
+    count: data.count
+  });
+  renderViolationsFeed();
+  updateStats();
+  addActivity(`⚠️ ${data.username}: ${data.type} (violation #${data.count})`);
+  toast(`⚠ Violation: ${data.username} — ${data.type}`, 'danger');
+});
+
+socket.on('questions_loaded', (data) => {
+  addActivity(`📋 ${data.count} questions loaded`);
+  toast(`${data.count} questions loaded successfully!`);
+});
+
+socket.on('exam_started', (data) => {
+  examRunning = true;
+  updateExamStatus(true);
+  addActivity(`🟢 Exam STARTED — ${data.duration_minutes} min | ${data.total_questions} questions`);
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').disabled = false;
+  document.getElementById('duration-input').disabled = true;
+  startAdminTimer(data.timer_remaining);
+  toast(`Exam started! ${data.duration_minutes} min timer running.`);
+});
+
+socket.on('exam_timeout', (data) => {
+  examRunning = false;
+  updateExamStatus(false);
+  stopAdminTimer();
+  addActivity(`⏰ ${data.message}`);
+  toast(`⏰ Time up! ${data.count} students auto-submitted.`, 'danger');
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('duration-input').disabled = false;
+});
+
+socket.on('timer_tick', (data) => {
+  updateAdminTimerDisplay(data.remaining);
+});
+
+socket.on('timer_warning', (data) => {
+  addActivity(data.message);
+  toast(data.message, 'danger');
+});
+
+socket.on('exam_stopped', () => {
+  examRunning = false;
+  updateExamStatus(false);
+  stopAdminTimer();
+  addActivity('🔴 Exam STOPPED by admin');
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled = true;
+  document.getElementById('duration-input').disabled = false;
+});
+
+socket.on('exam_results', (data) => {
+  resultData = data.results;
+  renderResults(data.results);
+  showPage('results');
+});
+
+socket.on('error', (data) => {
+  toast(data.message, 'danger');
+});
+
+// ════════════════════════════════════════════
+//  EXAM CONTROLS
+// ════════════════════════════════════════════
+function startExam() {
+  const duration = parseInt(document.getElementById('duration-input').value) || 30;
+  if (duration < 1 || duration > 300) { toast('Duration must be 1–300 minutes', 'danger'); return; }
+  socket.emit('start_exam', { duration_minutes: duration });
+}
+
+function stopExam() {
+  if (!confirm('Stop the exam for all students?')) return;
+  socket.emit('stop_exam', {});
+}
+
+function kickStudent(sid, username) {
+  if (!confirm(`Kick ${username} from the exam?`)) return;
+  socket.emit('kick', { socket_id: sid, reason: 'Removed by admin' });
+}
+
+// ════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`page-${name}`).classList.add('active');
+  document.querySelector(`[onclick="showPage('${name}')"]`).classList.add('active');
+
+  if (name === 'users') loadUsers();
+  if (name === 'results') loadResults();
+}
+
+// ════════════════════════════════════════════
+//  RENDER FUNCTIONS
+// ════════════════════════════════════════════
+function renderStudentsTable(students) {
+  const tbody = document.getElementById('students-table-body');
+  document.getElementById('student-count').textContent = `${students.length} students`;
+
+  if (!students.length) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div>No students connected.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = students.map(s => `
+    <tr>
+      <td><strong>${s.username}</strong></td>
+      <td><span class="badge badge-${s.status}">${s.status}</span></td>
+      <td><span class="viol-count ${s.violations >= 2 ? 'red' : s.violations >= 1 ? 'warn' : ''}">${s.violations}</span></td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${s.answers_count}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${s.login_time}</td>
+      <td>
+        ${s.status === 'active' ? `<button class="kick-btn" onclick="kickStudent('${s.socket_id}', '${s.username}')">Kick</button>` : '—'}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderViolationsFeed() {
+  const feed = document.getElementById('violations-feed');
+  if (!violationLog.length) {
+    feed.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div>No violations yet.</div>`;
+    return;
+  }
+  feed.innerHTML = violationLog.map(v => `
+    <div class="viol-item">
+      <span class="viol-time">${v.time}</span>
+      <span class="viol-user">${v.username}</span>
+      <span class="viol-type">${v.type.replace('_', ' ')}</span>
+      <span class="viol-num">#${v.count}</span>
+    </div>
+  `).join('');
+}
+
+function clearViolations() {
+  violationLog = [];
+  renderViolationsFeed();
+}
+
+function renderResults(results) {
+  const tbody = document.getElementById('results-table-body');
+  if (!results || !results.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No results yet.</div></td></tr>`;
+    return;
+  }
+  const sorted = [...results].sort((a,b) => (b.score||0) - (a.score||0));
+  tbody.innerHTML = sorted.map((r, i) => `
+    <tr>
+      <td><strong>${r.username}</strong></td>
+      <td style="font-family:var(--mono);font-size:16px;color:var(--accent)">${r.score ?? '—'}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${Object.keys(r.answers||{}).length}</td>
+      <td><span class="viol-count ${(r.violations||0)>0?'warn':''}">${r.violations||0}</span></td>
+      <td><span class="badge badge-${r.status}">${r.status}</span></td>
+    </tr>
+  `).join('');
+}
+
+function updateStats() {
+  const online    = studentData.filter(s => s.status === 'active').length;
+  const submitted = studentData.filter(s => s.status === 'submitted').length;
+  const kicked    = studentData.filter(s => s.status === 'kicked').length;
+  const violations = violationLog.length;
+
+  document.getElementById('stat-online').textContent = online;
+  document.getElementById('stat-submitted').textContent = submitted;
+  document.getElementById('stat-violations').textContent = violations;
+  document.getElementById('stat-kicked').textContent = kicked;
+}
+
+// ════════════════════════════════════════════
+//  ACTIVITY FEED
+// ════════════════════════════════════════════
+const activities = [];
+function addActivity(msg) {
+  const time = new Date().toLocaleTimeString();
+  activities.unshift({ time, msg });
+  if (activities.length > 50) activities.pop();
+
+  const feed = document.getElementById('activity-feed');
+  feed.innerHTML = activities.map(a => `
+    <div style="display:flex;gap:16px;align-items:center;padding:10px 20px;border-bottom:1px solid rgba(26,45,63,0.4)">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--muted);flex-shrink:0">${a.time}</span>
+      <span style="font-size:13px">${a.msg}</span>
+    </div>
+  `).join('');
+}
+
+// ════════════════════════════════════════════
+//  QUESTIONS UPLOAD
+// ════════════════════════════════════════════
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    toast('Only CSV files are supported.', 'danger');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  toast('Uploading questions...');
+
+  fetch('/api/upload_csv', { method: 'POST', body: formData })
+    .then(r => r.text().then(text => ({ status: r.status, ok: r.ok, text })))
+    .then(({ status, ok, text }) => {
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        // Server returned non-JSON (crash/empty body)
+        console.error('Server response was not JSON:', text);
+        toast('❌ Server error — check your terminal for the error message.', 'danger');
+        return;
+      }
+      if (data.success) {
+        toast(`✅ ${data.count} questions loaded!`);
+        previewCSV(file);
+      } else {
+        toast('❌ ' + (data.error || 'Upload failed'), 'danger');
+      }
+    })
+    .catch(err => {
+      console.error('Upload fetch error:', err);
+      toast('❌ Cannot reach server. Is it still running?', 'danger');
+    });
+}
+
+function previewCSV(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rows = lines.slice(1).map(l => l.split(',').map(c => c.trim()));
+
+    document.getElementById('questions-preview').style.display = 'block';
+    document.getElementById('q-count-label').textContent = `${rows.length} questions`;
+
+    const tbody = document.getElementById('questions-preview-body');
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${r[0]||i+1}</td>
+        <td>${r[1]||''}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${[r[2],r[3],r[4],r[5]].filter(Boolean).join(' / ')}</td>
+        <td style="font-family:var(--mono);font-size:12px;color:var(--accent)">${r[6]||''}</td>
+      </tr>
+    `).join('');
+  };
+  reader.readAsText(file);
+}
+
+// Drag and drop
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) {
+    const dt = new DataTransfer();
+    dt.items.add(f);
+    document.getElementById('file-input').files = dt.files;
+    handleFileSelect(document.getElementById('file-input'));
+  }
+});
+
+// ════════════════════════════════════════════
+//  USER MANAGEMENT
+// ════════════════════════════════════════════
+function addUser() {
+  const username = document.getElementById('new-username').value.trim();
+  const password = document.getElementById('new-password').value.trim();
+  const msg = document.getElementById('user-msg');
+
+  if (!username || !password) {
+    showUserMsg('Fill in both fields.', 'var(--danger)');
+    return;
+  }
+
+  fetch('/api/add_user', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ username, password })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      showUserMsg(`✅ ${data.message}`, 'var(--accent)');
+      document.getElementById('new-username').value = '';
+      document.getElementById('new-password').value = '';
+      loadUsers();
+    } else {
+      showUserMsg(`❌ ${data.message}`, 'var(--danger)');
+    }
+  });
+}
+
+function showUserMsg(text, color) {
+  const el = document.getElementById('user-msg');
+  el.textContent = text;
+  el.style.color = color;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+function loadUsers() {
+  fetch('/api/users')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('users-table-body');
+      if (!data.users.length) {
+        tbody.innerHTML = `<tr><td colspan="2"><div class="empty-state">No users found.</div></td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td><strong>${u.username}</strong></td>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">${u.role}</td>
+        </tr>
+      `).join('');
+    });
+}
+
+function loadResults() {
+  fetch('/api/results')
+    .then(r => r.json())
+    .then(data => {
+      renderResults(data.results);
+    });
+}
+
+function exportResults() {
+  fetch('/api/results')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.results.length) { toast('No results to export', 'danger'); return; }
+      const rows = [['Username','Score','Violations','Status']];
+      data.results.forEach(r => rows.push([r.username, r.score||0, r.violations||0, r.status]));
+      const csv = rows.map(r => r.join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `exam_results_${Date.now()}.csv`;
+      a.click();
+    });
+}
+
+// ════════════════════════════════════════════
+//  STATUS HELPERS
+// ════════════════════════════════════════════
+function setServerStatus(connected) {
+  const dot = document.getElementById('server-dot');
+  const txt = document.getElementById('server-status');
+  dot.className = 'status-dot' + (connected ? ' active' : '');
+  txt.textContent = connected ? 'Server Connected' : 'Disconnected';
+}
+
+function updateExamStatus(running) {
+  const dot = document.getElementById('exam-dot');
+  const txt = document.getElementById('exam-status');
+  dot.className = 'status-dot' + (running ? ' running' : '');
+  txt.textContent = running ? 'Exam Running' : 'Exam Idle';
+}
+
+// ════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════
+let toastTimer;
+// ── Admin Timer ──
+let adminTimerInterval = null;
+
+function startAdminTimer(remaining) {
+  document.getElementById('timer-display').style.display = 'flex';
+  updateAdminTimerDisplay(remaining);
+}
+
+function stopAdminTimer() {
+  document.getElementById('timer-display').style.display = 'none';
+}
+
+function updateAdminTimerDisplay(remaining) {
+  const h = Math.floor(remaining / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  const display = h > 0
+    ? `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  const el = document.getElementById('timer-display');
+  el.textContent = display;
+  if (remaining <= 60) { el.style.color = 'var(--danger)'; el.style.borderColor = 'rgba(255,71,87,0.4)'; }
+  else if (remaining <= 300) { el.style.color = 'var(--warn)'; el.style.borderColor = 'rgba(255,179,71,0.4)'; }
+  else { el.style.color = 'var(--accent)'; el.style.borderColor = 'rgba(0,212,170,0.3)'; }
+}
+
+function toast(msg, type = 'default') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type === 'danger' ? 'danger' : ''}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3500);
+}
+</script>
+</body>
+</html>
